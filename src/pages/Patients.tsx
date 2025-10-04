@@ -1,56 +1,98 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Search, UserCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase";
+import { offlineStorage } from "@/lib/offlineStorage";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
-// Mock data
-const mockPatients = [
-  {
-    id: "1",
-    name: "Ramesh Kumar",
-    age: 35,
-    gender: "Male",
-    village: "Dharampur",
-    lastVisit: "2025-09-25",
-    status: "healthy",
-  },
-  {
-    id: "2",
-    name: "Meera Devi",
-    age: 28,
-    gender: "Female",
-    village: "Ramgarh",
-    lastVisit: "2025-09-28",
-    status: "follow-up",
-  },
-  {
-    id: "3",
-    name: "Suresh Yadav",
-    age: 42,
-    gender: "Male",
-    village: "Dharampur",
-    lastVisit: "2025-09-20",
-    status: "overdue",
-  },
-  {
-    id: "4",
-    name: "Geeta Kumari",
-    age: 25,
-    gender: "Female",
-    village: "Sitapur",
-    lastVisit: "2025-09-30",
-    status: "healthy",
-  },
-];
+interface Patient {
+  id: string;
+  name: string;
+  age?: number;
+  gender: string;
+  village?: string;
+  address?: string;
+  lastVisit?: string;
+  last_visit?: string;
+  status: string;
+}
 
 const Patients = () => {
   const navigate = useNavigate();
+  const { isOnline } = useOnlineStatus();
   const [searchQuery, setSearchQuery] = useState("");
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredPatients = mockPatients.filter((patient) =>
+  useEffect(() => {
+    loadPatients();
+  }, [isOnline]);
+
+  const loadPatients = async () => {
+    setLoading(true);
+    try {
+      if (isOnline) {
+        // Load from Supabase
+        const { data, error } = await supabase
+          .from('patients')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const formattedData: Patient[] = (data || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          age: p.dob ? Math.floor((new Date().getTime() - new Date(p.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : undefined,
+          gender: p.gender,
+          village: p.address?.split(',')[0],
+          address: p.address,
+          lastVisit: p.last_visit,
+          status: p.status || 'healthy',
+        }));
+
+        setPatients(formattedData);
+      } else {
+        // Load from offline storage
+        const offlineData = offlineStorage.getPatients();
+        const formattedData: Patient[] = offlineData.map((p: any) => ({
+          id: p.id || crypto.randomUUID(),
+          name: p.name,
+          age: p.dob ? Math.floor((new Date().getTime() - new Date(p.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : undefined,
+          gender: p.gender,
+          village: p.address?.split(',')[0],
+          address: p.address,
+          lastVisit: new Date().toISOString().split('T')[0],
+          status: 'healthy',
+        }));
+
+        setPatients(formattedData);
+      }
+    } catch (error) {
+      console.error('Error loading patients:', error);
+      // Fallback to offline data
+      const offlineData = offlineStorage.getPatients();
+      const formattedData: Patient[] = offlineData.map((p: any) => ({
+        id: p.id || crypto.randomUUID(),
+        name: p.name,
+        age: p.dob ? Math.floor((new Date().getTime() - new Date(p.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : undefined,
+        gender: p.gender,
+        village: p.address?.split(',')[0],
+        address: p.address,
+        lastVisit: new Date().toISOString().split('T')[0],
+        status: 'healthy',
+      }));
+      setPatients(formattedData);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredPatients = patients.filter((patient) =>
     patient.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -99,8 +141,13 @@ const Patients = () => {
 
       {/* Patient List */}
       <main className="container mx-auto px-4 pb-6">
-        <div className="space-y-3 max-w-2xl mx-auto">
-          {filteredPatients.map((patient) => (
+        {loading ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Loading patients...</p>
+          </div>
+        ) : (
+          <div className="space-y-3 max-w-2xl mx-auto">
+            {filteredPatients.map((patient) => (
             <Card
               key={patient.id}
               className="p-4 hover:shadow-lg transition-all duration-200 cursor-pointer"
@@ -121,20 +168,21 @@ const Patients = () => {
                   </div>
                   <div className="space-y-1 text-sm text-muted-foreground">
                     <p>
-                      {patient.age} years • {patient.gender}
+                      {patient.age ? `${patient.age} years • ` : ''}{patient.gender}
                     </p>
-                    <p>Village: {patient.village}</p>
-                    <p>Last Visit: {new Date(patient.lastVisit).toLocaleDateString()}</p>
+                    {patient.village && <p>Village: {patient.village}</p>}
+                    {patient.lastVisit && <p>Last Visit: {new Date(patient.lastVisit).toLocaleDateString()}</p>}
                   </div>
                 </div>
               </div>
             </Card>
-          ))}
-        </div>
+            ))}
 
-        {filteredPatients.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No patients found</p>
+            {filteredPatients.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No patients found</p>
+              </div>
+            )}
           </div>
         )}
       </main>

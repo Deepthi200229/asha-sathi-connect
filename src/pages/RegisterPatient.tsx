@@ -6,9 +6,13 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Mic, Camera, Save, MapPin } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase";
+import { offlineStorage } from "@/lib/offlineStorage";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 const RegisterPatient = () => {
   const navigate = useNavigate();
+  const { isOnline } = useOnlineStatus();
   const [formData, setFormData] = useState({
     name: "",
     dob: "",
@@ -17,14 +21,60 @@ const RegisterPatient = () => {
     contact: "",
     familyId: "",
   });
+  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement actual save logic
-    toast.success("Patient registered successfully!", {
-      description: "Data saved offline and will sync when online",
-    });
-    navigate("/patients");
+    setSaving(true);
+
+    try {
+      if (isOnline) {
+        // Save to Supabase when online
+        const { error } = await supabase
+          .from('patients')
+          .insert([{
+            name: formData.name,
+            dob: formData.dob,
+            gender: formData.gender,
+            address: formData.address,
+            contact: formData.contact,
+            family_id: formData.familyId,
+            status: 'healthy',
+            last_visit: new Date().toISOString().split('T')[0],
+          }]);
+
+        if (error) throw error;
+
+        toast.success("Patient registered successfully!", {
+          description: "Data saved to database",
+        });
+      } else {
+        // Save offline when not online
+        offlineStorage.savePatient({
+          ...formData,
+          synced: false,
+          createdAt: new Date().toISOString(),
+        });
+        toast.success("Patient registered offline!", {
+          description: "Data will sync when online",
+        });
+      }
+
+      navigate("/patients");
+    } catch (error) {
+      console.error('Error saving patient:', error);
+      // Fallback to offline storage
+      offlineStorage.savePatient({
+        ...formData,
+        synced: false,
+        createdAt: new Date().toISOString(),
+      });
+      toast.error("Couldn't save online, saved offline", {
+        description: "Data will sync when connection is restored",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleVoiceInput = (field: string) => {
@@ -186,9 +236,13 @@ const RegisterPatient = () => {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full h-14 text-base font-semibold">
+            <Button 
+              type="submit" 
+              className="w-full h-14 text-base font-semibold"
+              disabled={saving}
+            >
               <Save className="w-5 h-5 mr-2" />
-              Save Patient
+              {saving ? 'Saving...' : 'Save Patient'}
             </Button>
           </form>
         </Card>

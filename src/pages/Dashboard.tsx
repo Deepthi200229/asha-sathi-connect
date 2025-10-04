@@ -14,10 +14,12 @@ import {
   LogOut,
 } from "lucide-react";
 import { useState } from "react";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { toast } from "sonner";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [isOnline] = useState(true);
+  const { isOnline, toggleOnline } = useOnlineStatus();
   const userRole = localStorage.getItem("userRole") || "asha";
 
   const handleLogout = () => {
@@ -83,7 +85,13 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary text-sm font-medium">
+            <button
+              onClick={() => {
+                toggleOnline();
+                toast.info(isOnline ? "Switched to offline mode" : "Switched to online mode");
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary text-sm font-medium cursor-pointer hover:bg-secondary/80 transition-colors"
+            >
               {isOnline ? (
                 <>
                   <Wifi className="w-4 h-4 text-success" />
@@ -95,7 +103,7 @@ const Dashboard = () => {
                   <span className="text-muted-foreground">Offline</span>
                 </>
               )}
-            </div>
+            </button>
             <Button
               variant="ghost"
               size="icon"
